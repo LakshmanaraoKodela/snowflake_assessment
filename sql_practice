@@ -1,0 +1,520 @@
+
+
+--********************** -------     QUERIES  --------         **************************************************************
+
+
+--2. Create a procedure with input parameter as EmployeeID which retrieves the employee list who
+--are reporting under the employee including the input employee details. If the parameter is null then 
+--select all the employee details with reporting manager as separate column. 
+	
+	--1. Employee table columns
+	--2. Reporting Manager Name
+	--3. Reporting Manager ID
+
+
+-- Creating a procedure to get employee details and his manager id,department,name
+
+ALTER PROCEDURE Employeedata.[Employee_Manager_data]
+(
+@Emp_Id INT = NULL               -- Giving the employee_id as NULL by Default
+)
+AS 
+BEGIN TRY                                              -- try starting
+BEGIN    
+    IF EXISTS (
+               SELECT employee_id FROM Employeedata.employeesses  WHERE @Emp_Id= employee_id 
+			   OR @Emp_Id IS NULL)
+               SELECT Emp_data.employee_id AS Emp_Id,
+               (Emp_data.first_name+Emp_data.last_name) AS Employee_NAME,  -- Concat for combining the Employee firstname and lastname
+			   Emp_data.email,
+			   Emp_data.phone_number,
+			   Emp_data.hire_date,
+			   Emp_data.salary,
+			   Emp_data.job_id,
+			   Emp_data.department_id,
+               Manager_data.employee_id AS [Reporting Manager Id],
+               (Manager_data.first_name+Manager_data.last_name) AS [Reporting Manager Name] 
+               FROM Employeedata.employeesses AS Emp_data 
+               LEFT JOIN Employeedata.employeesses AS Manager_data                         --Self join for the employeesses table
+               ON Emp_data.manager_id = Manager_data.employee_id
+               WHERE
+               @Emp_Id= Emp_data.employee_id  OR @Emp_Id IS NULL
+    ELSE 
+
+    RAISERROR('invalid Employee id, Please check the Employee id that you have entered',16,1)            
+END
+
+END TRY
+
+BEGIN CATCH          --Catch statement Begining
+  SELECT
+    ERROR_MESSAGE() AS ErrorMessage,
+    'PLEASE CHECK THE EMPLOYEE_ID' AS EmployeeId,
+    ERROR_LINE() AS ErrorLine,
+    ERROR_NUMBER() AS ErrorNumber,
+    ERROR_STATE() AS ErrorState,
+    ERROR_SEVERITY() AS ErrorSeverity,
+    ERROR_PROCEDURE() AS ErrorProcedure
+
+END CATCH;
+
+
+--Execution Statements for the Employeedata.Employee_Manager_data PROCEDURE
+
+ EXEC Employeedata.Employee_Manager_data 23
+ EXEC Employeedata.Employee_Manager_data 35
+ EXEC Employeedata.Employee_Manager_data 15
+ EXEC Employeedata.Employee_Manager_data ''
+ EXEC Employeedata.Employee_Manager_data 0
+ EXEC Employeedata.Employee_Manager_data NULL
+ EXEC Employeedata.Employee_Manager_data 399
+
+
+
+EXECUTE SP_helptext [Employeedata.Employee_Manager_data]
+EXECUTE sp_help [Employeedata.Employee_Manager_data] 
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--3. Create a procecdure to fetch below columns
+
+    --1. Employee Details with respective Job, dependants, department name, location details, country and region
+
+--PROCEDURE to get all employees Details (Job, dependants, department name, location details, country and region)
+
+
+CREATE PROCEDURE SpFetchData1
+AS
+BEGIN
+  SELECT
+  CONCAT(Employeedata.employeesses.first_name,Employeedata.employeesses.last_name) AS EmployeeName,
+  Employeedata.employeesses.employee_id,
+  CONCAT(Employeedata.dependentes.first_name,Employeedata.dependentes.last_name) AS DependentsNaame,
+  job_title,
+  department_name,
+  city,state_province,
+  country_name,
+  region_name
+  FROM Employeedata.regions 
+  JOIN Employeedata.countries                                                --joining  regions, countries  tables to get countryname and region name
+  ON Employeedata.regions.region_id= Employeedata.countries.region_id				
+  JOIN Employeedata.locations                                                -- joining the above join with locations table     
+  ON Employeedata.countries.country_id=Employeedata.locations.country_id 
+  JOIN Employeedata.departments                                               -- joining the above join with departments table
+  ON Employeedata.locations.location_id=Employeedata.departments.location_id 
+  JOIN Employeedata.employeesses                                              -- joining the above join with employeesses table                            
+  ON Employeedata.departments.department_id=Employeedata.employeesses.department_id 
+  JOIN Employeedata.dependentes                                               -- joining the above join with dependentes table       
+  ON Employeedata.employeesses.employee_id=Employeedata.dependentes.employee_id 
+  JOIN Employeedata.jobs                                                       --joining the above join with jobs table         
+  ON  Employeedata.jobs.job_id=Employeedata.employeesses.job_id 
+END
+
+EXECUTE SpFetchData1 
+
+EXECUTE SP_helptext SpFetchData1
+
+EXECUTE sp_help SpFetchData1 
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+--4. Fetch the employee who have only 1 or 2 dependants order by spouse,daughter,son,father,mother.
+-- Using the Case statements
+
+SELECT * FROM Employeedata.dependentes
+
+------Using the CTE
+
+;with cte_dep_Emp
+as(
+    select
+    d.employee_id ,
+    e.last_name,
+    e.first_name
+
+    from Employeedata.dependentes d
+        inner join Employeedata.employeesses  e   --joining the dependentes and employeesses tables
+        on d.employee_id=e.employee_id
+
+    group by d.employee_id,e.last_name,
+    e.first_name
+      having COUNT(d.employee_id )<3              -- having the employees who have less than 2 dependencies
+      )
+select e.*,
+       d.first_name,
+       d.last_name,
+       d.relationship as Relation,
+row_number() over (partition by d.employee_id             -- get the dependendencies in row_number() function order
+    order by case when d.relationship='spouse'   then 1        --Case statements
+                  when d.relationship='daughter' then 2
+                  when d.relationship='son'        then 3
+                  when d.relationship='Father'     then 4
+                  else 5 end
+                    )AS RowNumber
+    from cte_dep_Emp e 
+    inner join Employeedata.dependentes  d
+    on e.employee_id=d.employee_id
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+--5. Create a procedure to remove employee duplicates based on ID
+
+-- get the duplicate records using Select Statement
+
+SELECT first_name,last_name,hire_date,COUNT(*) AS CNT
+FROM Employeedata.employeesses
+GROUP BY
+first_name,last_name,hire_date                             -- get the employees records  whose have same firstname,lastname,hiredate
+HAVING COUNT(Employeedata.employeesses.first_name) > 1
+AND COUNT(Employeedata.employeesses.last_name) > 1
+AND COUNT(Employeedata.employeesses.hire_date) > 1;
+
+
+--Another way for Deleting duplicate records using CTE 
+
+
+;WITH CTE(first_name,last_name,hire_date,CountDuplicate)
+AS
+(SELECT first_name,last_name,hire_date,
+        ROW_NUMBER() OVER (PARTITION BY    -- using the row_number() function to get the number to all duplicate records
+		first_name,
+		last_name,
+		hire_date
+		ORDER BY employee_id) AS DuplicateCount
+		FROM Employeedata.employeesses)
+		DELETE CTE
+		WHERE CountDuplicate > 1;   -- if no.of duplicate records > 1 they will be deleted 
+
+
+--Another way For Deleting duplicate records using Pocedure 
+
+Alter PROCEDURE dbo.SpRemoveDuplicating
+AS
+BEGIN
+Delete  FROM Employeedata.employeesses
+    WHERE employeesses.employee_id NOT IN
+    (
+      SELECT MAX(employeesses.employee_id) AS MaxRecordID  -- delete the employee records who have the maximum of same firstname,lastname,hiredate       
+      FROM Employeedata.employeesses
+      GROUP BY employeesses.first_name,employeesses.last_name,employeesses.hire_date
+    );
+	END
+
+	
+EXECUTE dbo.SpRemoveDuplicating
+
+EXECUTE SP_helptext SpRemoveDuplicate
+
+EXECUTE sp_help SpRemoveDuplicate 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+--6. Create a function to validate email ( email ID as input parameter and return true or false )
+
+-- Creating a function to validate an email by passing the user email as a parameter
+-- 0 indicates false and 1 indicates true
+--Using  Regular Expressions
+ALTER FUNCTION Employeedata.FnemailValidate(@EMAIL varchar(100))
+RETURNS INT as
+BEGIN  
+   SELECT @EMAIL=replace(replace(@EMAIL,'[','*'),']','*')
+   DECLARE @EmailVal INT
+   DECLARE @EmailText varchar(100)
+
+  SET @EmailText=ltrim(rtrim(isnull(@EMAIL,'')))   
+
+  SET @EmailVal = case when @EmailText = '' then 0                                                        
+                           when @EmailText like '% %' then 0
+                          when @EmailText like ('%["(),:;<>\]%') then 0    -- these special characters are not allowed                                                
+                          when (left(@EmailText,1) like ('[-_.+]') or right(@EmailText,1) like ('[-_.+]'))  then 0                                                                                    
+                          when (@EmailText like '%[%' or @EmailText like '%]%') then 0
+                          when @EmailText LIKE '%@%@%' then 0 
+                          when @EmailText NOT LIKE '_%@_%.com' then 0 --must be end with .com	
+						  when @EmailText  LIKE'%.com%.com%' then 0
+						  when @EmailText  LIKE'%.com%.[a-z A-Z].com' then 0
+						  when @EmailText LIKE '%..%'  then 0    -- no two (..) come together
+						  when @EmailText LIKE '%@%.%.com'   then 0 
+						  when @EmailText LIKE '%.@%'   then 0
+						  when @EmailText LIKE '%@[0-9]%'   then 0
+						  when @EmailText like ('%[!#$%&*+/=?^`_{}|]%') then 0 
+                          else 1 
+                      end
+  RETURN @EmailVal
+END 
+GO
+
+EXEC sp_helptext  [Employeedata.FnemailValidate]
+
+-- Checking the Email Validation for Employeedata.FnemailValidate Function
+
+select Employeedata.FnemailValidate('lakshman12@gmail.com')-- true 1
+select Employeedata.FnemailValidate('lakshman12@gma}il.com')--false 0
+select Employeedata.FnemailValidate('laksh}man12@gmail.com')--false 0
+select Employeedata.FnemailValidate('lakshma{n12@gmail.com')--false 0
+select Employeedata.FnemailValidate('lak-shman12@gmail.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gmai_l.com')--false 0
+select Employeedata.FnemailValidate('la_kshman12@gmail.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gma[il.com')--false 0
+select Employeedata.FnemailValidate('lakshman.12@gmail.com')--TRUE 1
+select Employeedata.FnemailValidate('lakshman12@gmail.com.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gmail.com@gmail.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gmail.comweed.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gmail.com.weed.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gmail.com.com.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gmail.dddede.com')--false 0
+select Employeedata.FnemailValidate('lakshman12@gmail.com')-- true
+select Employeedata.FnemailValidate('lakshman12@fe.uji.com')-- false
+
+select Employeedata.FnemailValidate('')--false 0
+select Employeedata.FnemailValidate('ma@.comlakshman12') -- false 0
+select Employeedata.FnemailValidate('.@gmail.comlakshman') -- false 0
+select Employeedata.FnemailValidate('234535363') -- false 0
+select Employeedata.FnemailValidate('556677@gmail.com') -- true 1
+select Employeedata.FnemailValidate('233334lakshman@gmail.com') -- true 1
+select Employeedata.FnemailValidate('com.@gmail.12lakshman') --false 0
+select Employeedata.FnemailValidate('.com@gmail.12lakshman')--false 0
+select Employeedata.FnemailValidate('@@lakshman.com') -- false 0
+
+select Employeedata.FnemailValidate('lakshman12.@gmail.comrttf') -- FALSE 0
+select Employeedata.FnemailValidate('laks+@gmail.com')-- false 0 
+select Employeedata.FnemailValidate('+lakshman@gmail.com') -- false 0
+select Employeedata.FnemailValidate('lakshman@+-gmail.com')-- false 0
+select Employeedata.FnemailValidate('LAKshman47@gmail.com')-- true 1
+select Employeedata.FnemailValidate('laksh&%/@gmail.com')--false 0
+select Employeedata.FnemailValidate('%lakshman324@gmail%/.com')-- false 0
+select Employeedata.FnemailValidate('laksh&@gmail.com')----false 0
+
+select Employeedata.FnemailValidate('lakshman324@gmail.xyz') --false 0
+select Employeedata.FnemailValidate('lakshmana12.@kodela@gmail.com') --false 0
+select Employeedata.FnemailValidate('lakshmana12.kodela@gmail.com')--true 1
+select Employeedata.FnemailValidate('lakshmana.kodela@gmail.com')-- true 1
+select Employeedata.FnemailValidate('lakshmana..kodela.@gmail.com')--false 0 
+select Employeedata.FnemailValidate('lakshmana.kodela.@gmail.com') --false 0 
+select Employeedata.FnemailValidate('lakshmana.kodela@.gmail.com')-- false 0
+select Employeedata.FnemailValidate('lakshman12@1232.com')--false 0
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--7. Create a function to validate phone number ( phone number as input parameter and return true or false )
+
+
+
+ALTER FUNCTION Employeedata.Valid_phone (@phone_number varchar (15))
+RETURNS VARCHAR(5)
+AS
+BEGIN
+    SELECT @phone_number=replace(replace(@phone_number,'[','*'),']','*')
+    DECLARE @result VARCHAR (10) ;
+    SELECT @phone_number=LTRIM(rtrim(isnull(@phone_number,''))); 
+
+    SELECT @result= CASE  WHEN @phone_number like '+91-[6-9]%'  -- must begin with +91- as a country code
+                                and LEN(@phone_number)=14
+                                and @phone_number NOT like '%[A-Za-z]%'  -- shouldn't contain any characters
+                                and @phone_number not like '%[!#"<>@\,|$%^&*. `()/;:{}_]%'
+								and @phone_number not like '%+%-%' THEN 'True'-- shouldn't contain any special characters
+                          WHEN @phone_number like '[6-9]%' 
+                                and len(@phone_number)=10
+                                and @phone_number NOT like '%[A-Za-z]%' 
+                                and @phone_number not like '%[!#"<>@+-\,|$%^&*. `()/;:{}_]%'THEN 'True'
+                         WHEN LEN(@phone_number)=13
+                                and @phone_number like '+91[6-9]%' 
+                                and @phone_number NOT like '%[A-Za-z]%'
+								and @phone_number not like '+%+%'
+                                and @phone_number not like '%[!#"<>@-\,|$%^&*.` ()/;:{}_]%'THEN 'True'
+						 WHEN  @phone_number like '+91 [6-9]%' -- must begin with +91- as a country code
+                                and LEN(@phone_number)=14
+                                and @phone_number NOT like '%[A-Za-z]%'  -- shouldn't contain any characters
+                                and @phone_number  not like '%[!#"<>@-\,|$%^&*.`()/;:{}_]%'
+                                and @phone_number not like '% % %'THEN 'True'-- shouldn't contain any special characters
+                    ELSE 'False' 
+END
+    RETURN @result
+END
+
+EXEC sp_helptext  [Employeedata.Valid_phone]
+
+--Checking the phone number validation for the Employeedata.Valid_phone function
+SELECT Employeedata.Valid_phone('7185418346')-- TRUE
+SELECT Employeedata.Valid_phone('718541|346')--false 
+SELECT Employeedata.Valid_phone('7185412<346')-- FAlse
+SELECT Employeedata.Valid_phone('2185412346')--FALSE
+SELECT Employeedata.Valid_phone('+91 2185412346')--FALSE
+SELECT Employeedata.Valid_phone('+91-2185412346')-- FALSE
+SELECT Employeedata.Valid_phone('+91-9185412346')-- TRUE
+SELECT Employeedata.Valid_phone('+91 9188123465')--true
+SELECT Employeedata.Valid_phone('+91 918[123465')--false
+
+SELECT Employeedata.Valid_phone('+91 9185412346')-- TRUE
+SELECT Employeedata.Valid_phone('71812346') -- FALSE
+SELECT Employeedata.Valid_phone('+917182346')-- FALSE
+SELECT Employeedata.Valid_phone('+91 7185412346') -- TRUE
+SELECT Employeedata.Valid_phone('+91-71854123#6')--false
+SELECT Employeedata.Valid_phone('+91 71412346')-- FALSE
+SELECT Employeedata.Valid_phone('718541234EW')--FALSE
+SELECT Employeedata.Valid_phone('+91 *185412346')--FALSE
+SELECT Employeedata.Valid_phone('+91-.985412346')--FALSE
+
+SELECT Employeedata.Valid_phone('7185412346')-- true
+SELECT Employeedata.Valid_phone('+91- 715412346')--FALSE
+SELECT Employeedata.Valid_phone('+91 7185 12346')--FALSE
+SELECT Employeedata.Valid_phone('7185  2346')--FALSE
+SELECT Employeedata.Valid_phone('+91 71854 2346')--false
+SELECT Employeedata.Valid_phone('+91-71854 23 46')--false
+SELECT Employeedata.Valid_phone('+9171854 23 46')--false
+
+SELECT Employeedata.Valid_phone('+91-71854123`6')-- False
+SELECT Employeedata.Valid_phone('+91-9185412%34') --FALSE
+
+SELECT Employeedata.Valid_phone('+91 9185412%34')-- FALSE
+SELECT Employeedata.Valid_phone('+91-8985647097')-- true
+SELECT Employeedata.Valid_phone('+91-89856470@7')--FALSE
+SELECT Employeedata.Valid_phone('+91-P1239867451') -- false
+
+SELECT Employeedata.Valid_phone('+9189+4098860')-- false
+
+SELECT Employeedata.Valid_phone('+91-89-4098860')--FALSE
+
+SELECT Employeedata.Valid_phone('+91 89409^8860')--FALSE
+
+SELECT Employeedata.Valid_phone('+91-@7891299045')-- false
+SELECT Employeedata.Valid_phone('+91 @7891299045')-- false
+SELECT Employeedata.Valid_phone('+91-896723459.')-- false
+SELECT Employeedata.Valid_phone('+91 896723459.')-- false
+SELECT Employeedata.Valid_phone('+91-907843266*')-- false
+SELECT Employeedata.Valid_phone('+91907843266*')-- false
+SELECT Employeedata.Valid_phone('+91-907843266`')-- False
+SELECT Employeedata.Valid_phone('+91-907843266/')-- False
+SELECT Employeedata.Valid_phone('+91-907843266&')-- False
+SELECT Employeedata.Valid_phone('9078432669') -- true
+SELECT Employeedata.Valid_phone('718541[346')-- false
+SELECT Employeedata.Valid_phone('7185')-- false
+
+SELECT Employeedata.Valid_phone('8985647097')
+
+SELECT Employeedata.Valid_phone('8985 4 097')--false
+SELECT Employeedata.Valid_phone('898564:097')--false
+SELECT Employeedata.Valid_phone('89856o7097')--false
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+--8. Select query to get the max salary of all the jobs including job title and min salary along with the job title
+
+select 
+	job_title,
+	min_salary as salary,'MINIMUM SALARY OF ALL JOBS' as salary_ranking  
+from(
+SELECT 
+	job_title,
+	min_salary,
+ROW_NUMBER() OVER(ORDER BY min_salary ) as min_RowNumber 
+from Employeedata.jobs             
+) as emtables 
+  where min_RowNumber=1
+
+UNION          -- using the union to get the max salary of all the jobs          
+
+select job_title,max_salary as salary,'MAXIMUM SALARY OF ALL JOBS' as salary_ranking  from(
+SELECT job_title,max_salary,
+ROW_NUMBER() OVER(ORDER BY max_salary DESC) as max_RowNumber from Employeedata.jobs
+) as emtables WHERE max_RowNumber=1;                                               
+
+ ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ --9. Select query fetch the employoees whose hire date is before 2010
+    
+ SELECT * 
+ FROM Employeedata.employeesses 
+ WHERE 
+ YEAR(hire_date)< '2010'
+  -- get the employee data whose hire date is before than 2010
+
+ ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ --10 Select query to fetch the employees whose postal_code is not in regular format ( 5 digit integer )
+
+ --Employeedata.locations
+
+ SELECT
+e.employee_id,CONCAT(e.first_name,e.last_name) AS employee_name,
+p.postal_code FROM Employeedata.locations AS p
+JOIN Employeedata.departments AS d 
+ON p.location_id=d.location_id
+JOIN
+Employeedata.employeesses AS e
+ON d.department_id=e.department_id
+WHERE 
+    p.postal_code  like '%[a-z A-Z]' 
+OR
+    p.postal_code like '%[a-z A-Z]%' 
+OR
+    p.postal_code like '[a-z A-Z]%'
+OR
+    p.postal_code not like '[1-9][0-9][0-9][0-9][0-9][0-9]' 
+OR
+    LEN(postal_code ) <> 6 
+OR
+    p.postal_code  LIKE '[!#~"[]%@`<>^&*+()/.,-?;:{} _]' 
+
+
+ ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ --11. Select query to get the 3rd highest salary of all the jobs including job title and 2nd minimum salary along with the job title
+ -- Using the window functions
+ 
+-- Query to get 3rd heighest and 2 nd lowest salary from employeesses table using  UNION
+
+(SELECT * FROM(
+SELECT CONCAT(first_name,last_name) AS Name,
+employee_id,
+salary ,
+job_title,
+DENSE_RANK()   
+--BY Using the DENSE_RANK()Function,if duplicate values have the same rank, and the next rank is given to the next record without skipping a rank value.
+OVER(ORDER BY salary DESC) AS ranking,
+'third highest salary' as salry_ranking
+FROM Employeedata.employeesses 
+JOIN Employeedata.jobs 
+ON Employeedata.employeesses.job_id=Employeedata.jobs.job_id) AS k
+WHERE ranking=3) 
+
+UNION                            --- Using the Union to get the data from the two tables
+
+SELECT * FROM(                                         
+SELECT CONCAT(first_name,last_name) AS Name,
+employee_id,
+salary ,
+job_title,
+DENSE_RANK() 
+over(ORDER BY salary ASC) AS ranking,
+'second minimum salary' AS salry_ranking
+FROM Employeedata.employeesses
+JOIN Employeedata.jobs
+ON Employeedata.employeesses.job_id=Employeedata.jobs.job_id) AS C
+WHERE ranking=2;
+
+
+
+-- Another way to get 2 nd minimum and 3rd heighest salaries from employeesses table using CTE
+
+;WITH CTE_2min_3Max AS
+(SELECT CONCAT(first_name,last_name) AS Name,
+salary,
+job_title                                           
+FROM Employeedata.employeesses AS EMP1
+INNER JOIN Employeedata.jobs as Emp2               -- using Self Join  for the employeesses table
+ON EMP1.job_id = Emp2.job_id)
+SELECT *
+FROM CTE_2min_3Max AS Join_data                   -- get the data Using above CTE Function
+WHERE   (SELECT COUNT(DISTINCT salary)                -- Using  COUNT(DISTINCT salary )  to get the Unique Salary (i.e 3rd heighest and 2nd lowest)
+        FROM CTE_2min_3Max
+        WHERE salary >=  Join_data.salary) =3
+            OR
+        (SELECT COUNT(DISTINCT salary ) 
+         FROM CTE_2min_3Max
+         WHERE  salary <= Join_data.salary)=2
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+--************************************** xxxxxxxxxxx........ END ..........xxxxxxxxxxxxxxxxx   ****************************************************************
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 
+
+
+
+
+
+
+
+ 
