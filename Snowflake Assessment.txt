@@ -1,0 +1,525 @@
+
+-----------------CREATING TABLES -------------------------------------------------------------------
+
+
+
+CREATE TABLE Employeedata.regions (
+	region_id INT PRIMARY KEY IDENTITY(1,1) NOT NULL,
+	region_name NVARCHAR(25)
+);
+
+
+CREATE OR REPLACE TABLE Employeedata.jobs (
+	job_id INT PRIMARY KEY IDENTITY(1,1) NOT NULL,
+	job_title VARCHAR (33) NOT NULL,
+	min_salary NUMBER,
+	max_salary NUMBER
+);
+
+
+CREATE TABLE Employeedata.countries (
+	country_id INT PRIMARY KEY IDENTITY(1,1) NOT NULL,
+	country_name NVARCHAR (40),
+	region_id INT NOT NULL,
+	FOREIGN KEY (region_id) REFERENCES Employeedata.regions (region_id)
+);
+
+
+CREATE TABLE Employeedata.locations (
+	location_id INT PRIMARY KEY IDENTITY(1,1) NOT NULL,
+	street_address VARCHAR (40),
+	postal_code  VARCHAR(12),
+	city VARCHAR (30) NOT NULL,
+	state_province VARCHAR (22),
+	country_id INT NOT NULL,
+	FOREIGN KEY (country_id) REFERENCES Employeedata.countries (country_id)
+);
+
+
+CREATE TABLE Employeedata.departments (
+	department_id INT PRIMARY KEY IDENTITY(1,1) NOT NULL,
+	department_name VARCHAR (36) NOT NULL,
+	location_id INT,
+	FOREIGN KEY (location_id) REFERENCES Employeedata.locations (location_id) 
+);
+
+
+CREATE OR REPLACE TABLE  employees (
+	employee_id INT PRIMARY KEY IDENTITY(1,1) NOT NULL,
+	first_name VARCHAR (20),
+	last_name VARCHAR (25),
+	email VARCHAR (80) NOT NULL,
+	phone_number VARCHAR (20),
+	hire_date DATE NOT NULL,
+	job_id INT NOT NULL,
+	salary NUMBER NOT NULL,
+	manager_id INT ,
+	department_id INT,
+	FOREIGN KEY (job_id) REFERENCES jobs (job_id), 
+	FOREIGN KEY (department_id) REFERENCES departments (department_id),
+	FOREIGN KEY (manager_id) REFERENCES employees (employee_id) 
+);
+
+
+CREATE OR REPLACE TABLE Employeedata.dependents (
+	dependent_id INT PRIMARY KEY IDENTITY(1,1) NOT NULL,
+	first_name VARCHAR (60) NOT NULL,
+	last_name VARCHAR (60) NOT NULL,
+	relationship VARCHAR (25) NOT NULL,
+	employee_id INT NOT NULL,
+	FOREIGN KEY (employee_id) REFERENCES Employeedata.employees (employee_id)
+);
+
+
+
+
+--------------------------------------------------------------------------------------------------------
+alter schema EMP_DATA rename to Employeedata;
+
+show tables;
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------CREATING FILE FORMAT ---------------------------------------------------
+
+
+
+CREATE OR REPLACE FILE FORMAT Employeedata.STD_CSV_Comma_FORMAT
+type = CSV
+                                         field_delimiter = ','
+                                         record_delimiter = '\n'
+                                         skip_header = 1
+                                         date_format = 'YYYY-MM-DD'
+                                         TRIM_SPACE = TRUE
+                                         FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+                                         ;
+                                            
+
+list @~/Emp_Stage;
+
+
+----------------------------------LOADING THE DATA INTO TABLES------------------------------------------
+
+
+select $1,$2,$3
+from @~/LAKSHMAN_DB.EMPLOYEEDATA.Emp_Stage/countries.txt.gz
+(file_format => 'STD_CSV_Comma_FORMAT');
+
+
+COPY INTO countries
+FROM @~/Emp_Stage/countries.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'Employeedata.STD_CSV_Comma_FORMAT');
+
+
+
+COPY INTO DEPARTMENTS
+FROM @~/Emp_Stage/Department.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'Employeedata.STD_CSV_Comma_FORMAT');
+
+
+
+COPY INTO LAKSHMAN_DB.Employeedata.dependents
+FROM @~/Emp_Stage/dependents.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'Employeedata.STD_CSV_Comma_FORMAT');
+
+
+COPY INTO DEPENDENTS
+FROM @~/Emp_Stage/dependents.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'STD_CSV_Comma_FORMAT');
+
+
+
+COPY INTO EMPLOYEES
+FROM @~/Emp_Stage/Employees.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'STD_CSV_Comma_FORMAT');
+
+
+COPY INTO JOBS
+FROM @~/Emp_Stage/jobs.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'STD_CSV_Comma_FORMAT');
+
+
+
+COPY INTO LOCATIONS
+FROM @~/Emp_Stage/Locations.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'STD_CSV_Comma_FORMAT');
+
+
+COPY INTO REGIONS
+FROM @~/Emp_Stage/Regions.txt.gz
+FILE_FORMAT = (FORMAT_NAME = 'STD_CSV_Comma_FORMAT');
+
+
+
+list @~/Emp_Stage;
+
+
+--------------------------VIEW THE DATA IN THE TABLE--------------------------------------------
+
+select * from employees;
+select * from dependents;
+select * from countries;
+
+select * from departments;
+
+select * from jobs;
+select * from locations;
+select * from regions;
+
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------Lakshman Kodela
+                    
+
+
+
+
+
+
+
+--2. Create a procedure with input parameter as EmployeeID which retrieves the employee list who
+--are reporting under the employee including the input employee details. If the parameter is null then 
+--select all the employee details with reporting manager as separate column. 
+	
+	--1. Employee table columns
+	--2. Reporting Manager Name
+	--3. Reporting Manager ID
+
+
+-- Creating a procedure to get employee details and his manager id,department,name
+
+CREATE OR REPLACE PROCEDURE Employeedata.Employee_Manager_data(
+    EMP_ID INT DEFAULT NULL
+)
+RETURNS TABLE()
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    result_set_employees RESULTSET DEFAULT (
+        SELECT
+            Emp_data.employee_id AS Emp_Id,
+            CONCAT(Emp_data.first_name, ' ', Emp_data.last_name) AS Employee_NAME,
+            Emp_data.email,
+            Emp_data.phone_number,
+            Emp_data.hire_date,
+            Emp_data.salary,
+            Emp_data.job_id,
+            Emp_data.department_id,
+            Manager_data.employee_id AS "Reporting Manager Id",
+            CONCAT(Manager_data.first_name, ' ', Manager_data.last_name) AS "Reporting Manager Name"
+        FROM
+            employees AS Emp_data
+        LEFT JOIN
+            employees AS Manager_data
+        ON
+            Emp_data.manager_id = Manager_data.employee_id
+        WHERE
+            (:EMP_ID IS NULL OR Emp_data.employee_id = :EMP_ID)
+    );
+BEGIN
+    RETURN TABLE(result_set_employees);
+END;
+$$;
+
+CALL Employee_Manager_data();
+
+--------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------
+
+--3. Create a procecdure to fetch below columns
+
+    --1. Employee Details with respective Job, dependants, department name, location details, country and region
+
+--PROCEDURE to get all employees Details (Job, dependants, department name, location details, country and region)
+
+
+
+
+CREATE OR REPLACE PROCEDURE SpFetchData()
+  RETURNS TABLE ()
+  LANGUAGE SQL
+  AS
+  $$
+  DECLARE
+    result_set_data RESULTSET DEFAULT (
+        SELECT
+          CONCAT(e.first_name, e.last_name) AS EmployeeName,
+          e.employee_id,
+          CONCAT(d.first_name, d.last_name) AS DependentsName,
+          j.job_title,
+          dep.department_name,
+          loc.city,
+          loc.state_province,
+          c.country_name,
+          r.region_name
+        FROM
+          Employeedata.regions r
+        JOIN Employeedata.countries c ON r.region_id = c.region_id
+        JOIN Employeedata.locations loc ON c.country_id = loc.country_id
+        JOIN Employeedata.departments dep ON loc.location_id = dep.location_id
+        JOIN Employeedata.employees e ON dep.department_id = e.department_id
+        JOIN Employeedata.dependents d ON e.employee_id = d.employee_id
+        JOIN Employeedata.jobs j ON e.job_id = j.job_id
+    );
+  BEGIN
+    RETURN TABLE(result_set_data);
+  END;
+  $$;
+
+
+CALL SpFetchData();
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+--4. Fetch the employee who have only 1 or 2 dependants order by spouse,daughter,son,father,mother
+
+
+SELECT 
+    e.employee_id,
+    CONCAT(e.first_name, ' ', e.last_name) AS "Employee_Name",
+    CONCAT(d.first_name, ' ', d.last_name) AS "Dependent_Name",
+    d.relationship AS Relation
+FROM 
+    Employeedata.employees e
+INNER JOIN 
+    Employeedata.dependents d ON e.employee_id = d.employee_id
+WHERE 
+    e.employee_id IN (
+        SELECT 
+            employee_id 
+        FROM 
+            Employeedata.dependents 
+        GROUP BY 
+            employee_id 
+        HAVING 
+            COUNT(*) <= 2
+    )
+ORDER BY 
+    e.employee_id, 
+    CASE 
+        WHEN d.relationship = 'spouse' THEN 1
+        WHEN d.relationship = 'daughter' THEN 2
+        WHEN d.relationship = 'son' THEN 3
+        WHEN d.relationship = 'father' THEN 4
+        WHEN d.relationship = 'mother' THEN 5
+        ELSE 6 -- Other relations, if any
+    END;
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+--5. Create a procedure to remove employee duplicates based on ID
+
+
+CREATE OR REPLACE PROCEDURE LAKSHMAN_DB.EMPLOYEEDATA.SpRemoveDuplicates()
+  RETURNS TABLE ()
+  LANGUAGE SQL
+  AS
+  $$
+  DECLARE
+    result_set RESULTSET DEFAULT (
+    DELETE FROM LAKSHMAN_DB.Employeedata.employees
+     WHERE employee_id NOT IN
+    (
+      SELECT MAX(employee_id) AS MaxRecordID 
+      FROM LAKSHMAN_DB.Employeedata.employees
+      GROUP BY first_name,last_name,hire_date
+    ));
+    BEGIN
+      RETURN TABLE(result_set);
+    END;
+    $$;
+
+
+    
+	
+call SpRemoveDuplicates();
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+--6. Create a function to validate email ( email ID as input parameter and return true or false )
+
+-- Validating Email
+
+
+create or replace function Is_valid_mail(mail_id varchar(50))
+
+returns boolean
+
+as
+
+$$
+
+CASE WHEN REGEXP_LIKE(mail_id, '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$') THEN TRUE
+
+ELSE FALSE
+
+END     
+
+$$
+
+;
+ 
+select Is_valid_mail('@88h.ch@tcs.com');
+-- Execute the function with different user inputs
+SELECT
+    Is_valid_mail('user@example.com') AS is_valid_1,
+    Is_valid_mail('john.doe123@test.co.uk') AS is_valid_2,
+    Is_valid_mail('info+test@email.org') AS is_valid_3,
+    Is_valid_mail('alice_smith123@subdomain.domain.com') AS is_valid_4,
+    Is_valid_mail('user@localhost') AS is_valid_5,
+    Is_valid_mail('invalid.email@com') AS is_valid_6,
+    Is_valid_mail('user@domain_with_space.com') AS is_valid_7,
+    Is_valid_mail('@missing_local_part.com') AS is_valid_8,
+    Is_valid_mail('user@missing_domain_part.') AS is_valid_9,
+    Is_valid_mail('user@@double_at_symbol.com') AS is_valid_10;
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+--7 Validating Indian Phone Number with country code.
+
+CREATE OR REPLACE FUNCTION Is_valid_mobile(mobile_number VARCHAR(20))
+RETURNS BOOLEAN
+AS
+$$
+  CASE WHEN REGEXP_LIKE(mobile_number, '^(\\+91[- ]?)?[6789][0-9]{9}$') THEN TRUE
+  ELSE FALSE
+  END
+$$;
+-- Test the Is_valid_mobile function with the provided inputs
+SELECT
+    Is_valid_mobile('9883443344') AS is_valid_1,
+    Is_valid_mobile('09883443344') AS is_valid_2,
+    Is_valid_mobile('919883443344') AS is_valid_3,
+    Is_valid_mobile('0919883443344') AS is_valid_4,
+    Is_valid_mobile('+919883443344') AS is_valid_5,
+    Is_valid_mobile('+91-9883443344') AS is_valid_6,
+    Is_valid_mobile('0091-9883443344') AS is_valid_7,
+    Is_valid_mobile('+91 -9883443344') AS is_valid_8,
+    Is_valid_mobile('+91- 9883443344') AS is_valid_9,
+    Is_valid_mobile('+91 - 9883443344') AS is_valid_10,
+    Is_valid_mobile('0091 - 9883443344') AS is_valid_11;
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+  
+---8. Select query to get the max salary of all the jobs including job title and min salary along with the job title
+
+SELECT 
+  job_title,
+  min_salary AS salary,
+  'MINIMUM_SALARY_OF_ALL_JOBS' AS salary_ranking
+FROM
+  Employeedata.jobs
+WHERE
+  min_salary = (SELECT MIN(min_salary) FROM Employeedata.jobs)
+
+UNION ALL
+
+SELECT 
+  job_title,
+  max_salary AS salary,
+  'MAXIMUM_SALARY_OF_ALL_JOBS' AS salary_ranking
+FROM
+  Employeedata.jobs
+WHERE
+  max_salary = (SELECT MAX(max_salary) FROM Employeedata.jobs); 
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+--9. Select query fetch the employoees whose hire date is before 2010
+    
+ SELECT * 
+ FROM Employeedata.employees 
+ WHERE 
+ YEAR(hire_date)< '2020';
+
+ 
+--------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------
+
+
+--  10. Select query to fetch the employees whose postal_code is not in regular format ( 5 digit integer )
+
+SELECT
+    e.employee_id,
+    CONCAT(e.first_name, e.last_name) AS employee_name,
+    p.postal_code 
+FROM 
+    Employeedata.locations AS p
+JOIN 
+    Employeedata.departments AS d ON p.location_id = d.location_id
+JOIN
+    Employeedata.employees AS e ON d.department_id = e.department_id
+WHERE
+    -- Check if postal_code is not a 5 digit integer
+    NOT (p.postal_code RLIKE '^[0-9]{5}$');
+
+----------------------------------------------------------------------------------------------------
+
+
+
+--11. Select query to get the 3rd highest salary of all the jobs including job title and 2nd minimum salary along with the job title
+
+
+
+SELECT 
+    Name,
+    employee_id,
+    salary,
+    job_title,
+    salary_ranking
+FROM (
+    SELECT 
+        CONCAT(e.first_name, e.last_name) AS Name,
+        e.employee_id,
+        e.salary,
+        j.job_title,
+        DENSE_RANK() OVER (ORDER BY e.salary DESC) AS ranking,
+        'third highest salary' AS salary_ranking
+    FROM 
+        Employeedata.employees e
+    JOIN 
+        Employeedata.jobs j ON e.job_id = j.job_id
+    UNION ALL
+    SELECT 
+        CONCAT(e.first_name, e.last_name) AS Name,
+        e.employee_id,
+        e.salary,
+        j.job_title,
+        DENSE_RANK() OVER (ORDER BY e.salary ASC) AS ranking,
+        'second minimum salary' AS salary_ranking
+    FROM 
+        Employeedata.employees e
+    JOIN 
+        Employeedata.jobs j ON e.job_id = j.job_id
+) AS sub
+WHERE 
+    ranking IN (3, 2);
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------@@@@@@@@@@@@****THANK YOU ****@@@@@@@@@@@@@----------------------------------------                                                                                 Lakshman Kodela
+
+
+
+
